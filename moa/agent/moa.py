@@ -4,8 +4,11 @@ Langchain agent
 from typing import Generator, Dict, Optional, Literal, TypedDict, List, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+import os
 
 from langchain_groq import ChatGroq
+from langchain_huggingface import ChatHuggingFace
+from langchain_huggingface import HuggingFaceEndpoint
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import BaseMessage
@@ -35,7 +38,8 @@ valid_model_names = Literal[
     'gemma2-9b-it',
     'mixtral-8x7b-32768',
     'llama-3.1-8b-instant',
-    'llama-3.1-70b-versatile'
+    'llama-3.1-70b-versatile',
+    'humain-ai/ALLaM-7B-Instruct-preview'
 ]
 
 class ResponseChunk(TypedDict):
@@ -142,7 +146,23 @@ class MOAgent:
         ])
 
         assert 'helper_response' in prompt.input_variables
-        llm = ChatGroq(model=model_name, **llm_kwargs)
+        
+        
+        if "/" in model_name or "humain-ai" in model_name:
+            
+            hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+            if not hf_token:
+                raise ValueError("HUGGINGFACEHUB_API_TOKEN environment variable not set")
+            
+            llm = HuggingFaceEndpoint(
+                repo_id=model_name,
+                huggingfacehub_api_token=hf_token,
+                task="text-generation",
+                **llm_kwargs
+            )
+        else:
+            # Use Groq API
+            llm = ChatGroq(model=model_name, **llm_kwargs)
         
         chain = prompt | llm | StrOutputParser()
         return chain
