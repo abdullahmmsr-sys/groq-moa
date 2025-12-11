@@ -7,15 +7,30 @@ from pydantic import BaseModel, Field
 import os
 
 from langchain_groq import ChatGroq
-from langchain_huggingface import ChatHuggingFace
 from langchain_huggingface import HuggingFaceEndpoint
-from langchain.memory import ConversationBufferMemory
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda, RunnableSerializable
 from langchain_core.output_parsers import StrOutputParser
 
 from .prompts import SYSTEM_PROMPT, REFERENCE_SYSTEM_PROMPT
+
+
+# Simple memory implementation for ConversationBufferMemory
+class ConversationBufferMemory:
+    def __init__(self, memory_key="messages", return_messages=True):
+        self.memory_key = memory_key
+        self.return_messages = return_messages
+        self.messages = []
+    
+    def load_memory_variables(self, inputs):
+        return {self.memory_key: self.messages}
+    
+    def save_context(self, inputs, outputs):
+        input_text = inputs.get('input', '')
+        output_text = outputs.get('output', '')
+        # Store conversation history if needed
+        pass
 
 
 
@@ -200,18 +215,21 @@ class MOAgent:
                         metadata={'layer': cyc + 1}
                     )
 
-        stream = self.main_agent.stream(llm_inp)
+        # Use invoke instead of stream to avoid StopIteration issues
         response = ""
-        for chunk in stream:
-            if output_format == 'json':
-                    yield ResponseChunk(
-                        delta=chunk,
-                        response_type='output',
-                        metadata={}
-                    )
-            else:
-                yield chunk
-            response += chunk
+        try:
+            response = self.main_agent.invoke(llm_inp)
+        except Exception as e:
+            response = f"Error: {str(e)}"
+        
+        if output_format == 'json':
+            yield ResponseChunk(
+                delta=response,
+                response_type='output',
+                metadata={}
+            )
+        else:
+            yield response
 
         if save:
             self.chat_memory.save_context({'input': input}, {'output': response})

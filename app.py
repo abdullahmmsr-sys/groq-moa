@@ -10,10 +10,10 @@ from moa.agent import MOAgent
 from moa.agent.moa import ResponseChunk, MOAgentConfig
 from moa.agent.prompts import SYSTEM_PROMPT, REFERENCE_SYSTEM_PROMPT
 
-# Default configuration
+# Default configuration - HuggingFace
 default_main_agent_config = {
-    "main_model": "llama3-70b-8192",
-    "cycles": 3,
+    "main_model": "humain-ai/ALLaM-7B-Instruct-preview",
+    "cycles": 1,
     "temperature": 0.1,
     "system_prompt": SYSTEM_PROMPT,
     "reference_system_prompt": REFERENCE_SYSTEM_PROMPT
@@ -22,24 +22,19 @@ default_main_agent_config = {
 default_layer_agent_config = {
     "layer_agent_1": {
         "system_prompt": "Think through your response step by step. {helper_response}",
-        "model_name": "llama3-8b-8192",
+        "model_name": "humain-ai/ALLaM-7B-Instruct-preview",
         "temperature": 0.3
     },
     "layer_agent_2": {
         "system_prompt": "Respond with a thought and then your response to the question. {helper_response}",
-        "model_name": "gemma-7b-it",
-        "temperature": 0.7
-    },
-    "layer_agent_3": {
-        "system_prompt": "You are an expert at logic and reasoning. Always take a logical approach to the answer. {helper_response}",
-        "model_name": "llama3-8b-8192",
-        "temperature": 0.1
+        "model_name": "humain-ai/ALLaM-7B-Instruct-preview",
+        "temperature": 0.5
     },
 }
 
-# Recommended Configuration
+# Recommended Configuration - HuggingFace
 rec_main_agent_config = {
-    "main_model": "llama-3.1-70b-versatile",
+    "main_model": "humain-ai/ALLaM-7B-Instruct-preview",
     "cycles": 2,
     "temperature": 0.1,
     "system_prompt": SYSTEM_PROMPT,
@@ -49,24 +44,17 @@ rec_main_agent_config = {
 rec_layer_agent_config = {
     "layer_agent_1": {
         "system_prompt": "Think through your response step by step. {helper_response}",
-        "model_name": "gemma2-9b-it",
+        "model_name": "humain-ai/ALLaM-7B-Instruct-preview",
         "temperature": 0.1
     },
     "layer_agent_2": {
         "system_prompt": "Respond with a thought and then your response to the question. {helper_response}",
-        "model_name": "llama-3.1-8b-instant",
-        "temperature": 0.2,
-        "max_tokens": 2048
+        "model_name": "humain-ai/ALLaM-7B-Instruct-preview",
+        "temperature": 0.3
     },
     "layer_agent_3": {
         "system_prompt": "You are an expert at logic and reasoning. Always take a logical approach to the answer. {helper_response}",
-        "model_name": "llama-3.1-70b-versatile",
-        "temperature": 0.4,
-        "max_tokens": 2048
-    },
-    "layer_agent_4": {
-        "system_prompt": "You are an expert planner agent. Create a plan for how to answer the human's query. {helper_response}",
-        "model_name": "mixtral-8x7b-32768",
+        "model_name": "humain-ai/ALLaM-7B-Instruct-preview",
         "temperature": 0.5
     },
 }
@@ -84,34 +72,42 @@ def json_to_moa_config(config_file) -> Dict[str, Any]:
 
 def stream_response(messages: Iterable[ResponseChunk]):
     layer_outputs = {}
-    for message in messages:
-        if message['response_type'] == 'intermediate':
-            layer = message['metadata']['layer']
-            if layer not in layer_outputs:
-                layer_outputs[layer] = []
-            layer_outputs[layer].append(message['delta'])
-        else:
-            # Display accumulated layer outputs
-            for layer, outputs in layer_outputs.items():
-                st.write(f"Layer {layer}")
-                cols = st.columns(len(outputs))
-                for i, output in enumerate(outputs):
-                    with cols[i]:
-                        st.expander(label=f"Agent {i+1}", expanded=False).write(output)
-            
-            # Clear layer outputs for the next iteration
-            layer_outputs = {}
-            
-            # Yield the main agent's output
-            yield message['delta']
+    final_response = ""
+    
+    try:
+        for message in messages:
+            if message['response_type'] == 'intermediate':
+                layer = message['metadata']['layer']
+                if layer not in layer_outputs:
+                    layer_outputs[layer] = []
+                layer_outputs[layer].append(message['delta'])
+            else:
+                # Display accumulated layer outputs
+                for layer, outputs in layer_outputs.items():
+                    st.write(f"Layer {layer}")
+                    cols = st.columns(len(outputs))
+                    for i, output in enumerate(outputs):
+                        with cols[i]:
+                            st.expander(label=f"Agent {i+1}", expanded=False).write(output)
+                
+                # Clear layer outputs for the next iteration
+                layer_outputs = {}
+                
+                # Yield the main agent's output
+                final_response += message['delta']
+                yield message['delta']
+    except StopIteration:
+        pass
+    
+    return final_response
 
 def set_moa_agent(
     moa_main_agent_config = None,
     moa_layer_agent_config = None,
     override: bool = False
 ):
-    moa_main_agent_config = copy.deepcopy(moa_main_agent_config or default_main_agent_config)
-    moa_layer_agent_config = copy.deepcopy(moa_layer_agent_config or default_layer_agent_config)
+    moa_main_agent_config = copy.deepcopy(moa_main_agent_config or rec_main_agent_config) # تم تغيير 'default' إلى 'rec'
+    moa_layer_agent_config = copy.deepcopy(moa_layer_agent_config or rec_layer_agent_config) # تم تغيير 'default' إلى 'rec'
 
     if "moa_main_agent_config" not in st.session_state or override:
         st.session_state.moa_main_agent_config = moa_main_agent_config
@@ -143,8 +139,11 @@ st.set_page_config(
     layout="wide"
 )
 
-valid_model_names = [model.id for model in Groq().models.list().data if not (model.id.startswith("whisper") or model.id.startswith("llama-guard"))]
-
+# Get Groq models and add HuggingFace models
+groq_models = [model.id for model in Groq().models.list().data if not (model.id.startswith("whisper") or model.id.startswith("llama-guard"))]
+huggingface_models = ["humain-ai/ALLaM-7B-Instruct-preview"]
+valid_model_names = groq_models + huggingface_models
+#print(f"Available models: {valid_model_names}")
 st.markdown("<a href='https://groq.com'><img src='app/static/banner.png' width='500'></a>", unsafe_allow_html=True)
 st.write("---")
 
@@ -199,10 +198,12 @@ with st.sidebar:
                 st.error(f"Error updating configuration: {str(e)}")
 
         # Main model selection
+        current_model = st.session_state.moa_main_agent_config['main_model']
+        model_index = valid_model_names.index(current_model) if current_model in valid_model_names else 0
         new_main_model = st.selectbox(
             "Select Main Model",
             options=valid_model_names,
-            index=valid_model_names.index(st.session_state.moa_main_agent_config['main_model'])
+            index=model_index
         )
 
 
@@ -338,8 +339,17 @@ if query := st.chat_input("Ask a question"):
 
     moa_agent: MOAgent = st.session_state.moa_agent
     with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        ast_mess = stream_response(moa_agent.chat(query, output_format='json'))
-        response = st.write_stream(ast_mess)
-    
-    st.session_state.messages.append({"role": "assistant", "content": response})
+        try:
+            response_text = ""
+            progress_placeholder = st.empty()
+            
+            # Get response from agent
+            for chunk in moa_agent.chat(query, output_format='json'):
+                if chunk.get('response_type') == 'output':
+                    response_text += chunk['delta']
+                    progress_placeholder.write(response_text)
+            
+            st.session_state.messages.append({"role": "assistant", "content": response_text})
+        except Exception as e:
+            st.error(f"Error getting response: {str(e)}")
+            st.session_state.messages.append({"role": "assistant", "content": f"Error: {str(e)}"})
